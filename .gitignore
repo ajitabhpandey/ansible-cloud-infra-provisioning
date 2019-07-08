@@ -1,0 +1,6 @@
+#General
+.DS_Store
+
+# Ansible Retry files
+*.retry
+

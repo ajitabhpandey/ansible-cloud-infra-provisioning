@@ -1,0 +1,105 @@
+---
+- name: Provision a Digital Ocean Infra with required specs
+  hosts: localhost
+
+  vars:
+    - DO_TOKEN: "Put your token here if you do not want to supply on command line"
+    - DO_REGION: "blr1"
+    - DO_BLOCK_STORAGE_SIZE: "100"
+    - DO_VOLUME_NAME: "blr1-block-storage01"
+    - DO_DROPLET_SIZE: "2gb"
+    - DO_DROPLET_NAME: "ansible-test1"
+    - DO_DROPLET_IMAGE: "centos-7-x64"
+
+  tasks:
+    - name: Create SSH Key
+      digital_ocean_sshkey: 
+        oauth_token: "{{ DO_TOKEN }}"
+        name: "{{ item.key_name }}"
+        ssh_pub_key: "{{ item.pub_key }}"
+        state: present
+      with_items:
+        - { key_name: 'Test Key1', pub_key: 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDUAY3iJxGE6sn79YqfPmtsgSOFgMdAFL8th6Y7YAvzr6yDjPA4+a9QFCqcFFWv1lbpXB1rBX0QYQUhuu0VTmwUWXk6FZGWpjefPqgjFcSxo3MoAk6/nsGCynB7PR8z1hv3ZGiEI7LGChxRVlKuuF3M50eSnvYI1rBBs1w/wEQ1BiQY9P1QgSDtsGiyH/p8sbYGHRbF0s+/5cBpL6IqpEpNLHZo2XDBN+D8FFAJ9kOKzTBWAGnwaixdQwMlHbmudwKRPDzGht2xIpfFrIBMdSRjh/3Pye1eZQL3sUTWs5PTLZ6+UE+5LCzWGJxTGEDZQV3GHb1sxmpoOQBS5GVFUTVV user@test1.com' }
+      register: ssh_key_add_result
+      tags: create-ssh-key
+
+    - debug:
+        var: ssh_key_add_result
+        verbosity: 2
+
+    - name: Get all Digital Ocean SSH Keys
+      digital_ocean_sshkey_facts:
+        oauth_token: "{{ DO_TOKEN }}"
+      tags: ssh-key-facts
+    
+    - name: Set Digital Ocean SSH Keys as fatcs
+      set_fact:
+        pubkey_ids: "{{ ssh_keys | map(attribute='id') | list }}"
+      tags: ssh-key-facts
+
+    - debug:
+        var: pubkey_ids
+        verbosity: 2
+
+    - name: Create a floating IP in specified region
+      digital_ocean_floating_ip:
+        oauth_token: "{{ DO_TOKEN }}"
+        region: "{{ DO_REGION }}"
+        state: present
+      register: do_floating_ip_result
+      tags: create-floating-ip
+
+    - debug:
+        var: do_floating_ip_result
+        verbosity: 2
+    
+    - name: Create a new Block Storage
+      digital_ocean_block_storage:
+        oauth_token: "{{ DO_TOKEN }}"
+        region: "{{ DO_REGION }}"
+        block_size: "{{ DO_BLOCK_STORAGE_SIZE }}"
+        volume_name: "{{ DO_VOLUME_NAME }}"
+        state: present
+        command: create
+      tags: create-block-storage
+
+    - name: Gather facts about a particular volume
+      digital_ocean_volume_facts:
+        oauth_token: "{{ DO_TOKEN }}"
+        region_name: "{{ DO_REGION }}"
+      register: volumes
+      tags: volume-facts
+
+    - name: Set the volume ID of desired volume as facts
+      set_fact:
+        volume_id: "{{ item.id }}"
+      loop: "{{ volumes.data | json_query(volume_name) | list }}"
+      vars:
+        volume_name: "[?name=='{{ DO_VOLUME_NAME }}']"
+      tags: volume-facts
+
+    - debug:
+        var: volume_id
+        verbosity: 2
+
+    - name: Create a new droplet
+      digital_ocean_droplet:
+        oauth_token: "{{ DO_TOKEN }}"
+        region: "{{ DO_REGION }}"
+        size: "{{ DO_DROPLET_SIZE }}"
+        name: "{{ DO_DROPLET_NAME }}"
+        image: "{{ DO_DROPLET_IMAGE }}"
+        ssh_keys: "{{ pubkey_ids }}"
+ #    volumes: " {{volume_id }}"
+        unique_name: "yes"
+        monitoring: "yes"
+      register: droplet_out
+      tags: create-droplet
+
+    - debug: 
+        msg: "Droplet ID is {{droplet_out.data.droplet.id }} and IP is {{ droplet_out.data.ip_address }}"
+    
+    - debug:
+        var: droplet_out
+        verbosity: 2
+        
